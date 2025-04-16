@@ -1,5 +1,1 @@
-data/raw/
-data/processed/
-.env
-__pycache__/
-model/*.pkl
+venv/\n__pycache__/\n*.pkl\n*.csv\n.env\n*.json
