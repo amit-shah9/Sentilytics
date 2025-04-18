@@ -7,6 +7,12 @@ from collections import Counter
 import re
 import nltk
 from nltk.corpus import stopwords
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))  # Add root path
+
+from api_utils import fetch_reddit_sentiment
+
 
 nltk.download("stopwords")
 
