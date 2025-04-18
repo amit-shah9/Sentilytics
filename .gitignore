@@ -1,1 +1,28 @@
-venv/\n__pycache__/\n*.pkl\n*.csv\n.env\n*.json
+# Virtual environment
+venv/
+.VENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data and model artifacts
+*.csv
+*.json
+*.pkl
+*.joblib
+
+# Environment/config
+.env
+
+# Jupyter / Notebook remnants (if ever used)
+.ipynb_checkpoints/
+
+# Streamlit cache (optional but safe)
+.streamlit/
+
+# System files
+.DS_Store
+Thumbs.db

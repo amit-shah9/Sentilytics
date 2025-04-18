@@ -1,35 +1,127 @@
 import streamlit as st
-import joblib
-import os
+import requests
 import pandas as pd
+import altair as alt
+from datetime import datetime
+from collections import Counter
+import re
+import nltk
+from nltk.corpus import stopwords
 
-# 🧠 Load model and vectorizer
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, 'model', 'sentiment_model.pkl')
-VECTORIZER_PATH = os.path.join(BASE_DIR, 'model', 'tfidf_vectorizer.pkl')
+nltk.download("stopwords")
 
-model = joblib.load(MODEL_PATH)
-vectorizer = joblib.load(VECTORIZER_PATH)
+# Page setup
+st.set_page_config(page_title="Sentilytics", layout="wide")
+st.markdown(
+    """
+    <style>
+    .centered { display: flex; justify-content: center; text-align: center; }
+    .card {
+        padding: 1rem;
+        border-radius: 0.75rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 0 5px rgba(255, 255, 255, 0.05);
+    }
+    .positive {
+        background-color: rgba(0, 128, 0, 0.1);
+        border-left: 6px solid #2ecc71;
+    }
+    .negative {
+        background-color: rgba(255, 0, 0, 0.1);
+        border-left: 6px solid #e74c3c;
+    }
+    .info {
+        background-color: rgba(30, 144, 255, 0.1);
+        border-left: 6px solid #3498db;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-# 🖼️ Page setup
-st.set_page_config(page_title="Sentilytics", layout="centered")
-st.title("🧠 Sentilytics — Reddit Post Sentiment Classifier")
-st.write("Paste any Reddit post or message and this model will classify the sentiment based on recent Reddit content.")
+# Sidebar Inputs
+st.sidebar.title("🧠 Sentilytics Settings")
+query = st.sidebar.text_input("Topic / Keyword", "AI")
+limit = st.sidebar.slider("Number of Posts", 10, 200, 100, 10)
 
-# 📝 User input
-text_input = st.text_area("✍️ Enter a Reddit post or sentence:", height=150)
+st.title("🧠 Sentilytics - Reddit Sentiment Analysis")
 
-if st.button("🔍 Analyze Sentiment"):
-    if text_input.strip() == "":
-        st.warning("Please enter some text!")
-    else:
-        # Preprocess and predict
-        input_transformed = vectorizer.transform([text_input])
-        prediction = model.predict(input_transformed)[0]
+if st.sidebar.button("🔍 Analyze"):
+    with st.spinner("Analyzing Reddit posts..."):
+        response = requests.get("http://127.0.0.1:8000/analyze", params={"query": query, "limit": limit})
+        if response.status_code == 200:
+            data = response.json()
+            df = pd.DataFrame(data["posts"])
 
-        # Display result
-        st.success(f"Predicted Sentiment: **{prediction.upper()}**")
+            # Sentiment Breakdown
+            pos_pct = data["positive_percentage"]
+            neg_pct = data["negative_percentage"]
 
-        # Optional: emoji feedback
-        emoji = {"positive": "😊", "neutral": "😐", "negative": "😠"}
-        st.markdown(f"### {emoji.get(prediction, '')}")
+            st.markdown("## 📊 Sentiment Breakdown")
+            chart_data = pd.DataFrame({
+                "Sentiment": ["Positive", "Negative"],
+                "Percentage": [pos_pct, neg_pct]
+            })
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X("Percentage:Q", scale=alt.Scale(domain=[0, 100])),
+                y=alt.Y("Sentiment:N", sort="-x"),
+                color=alt.Color("Sentiment", scale=alt.Scale(range=["#e74c3c", "#2ecc71"])),
+                tooltip=["Sentiment", "Percentage"]
+            ).properties(width=600)
+            st.altair_chart(chart, use_container_width=True)
+
+            # Trendiness Signal
+            st.markdown("## 📈 Trendiness")
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            time_diff = df["timestamp"].max() - df["timestamp"].min()
+            total_minutes = round(time_diff.total_seconds() / 60)
+            trendiness = "🔥 High activity!" if total_minutes < 60 else "📉 Slower trend"
+
+            st.markdown(f'''
+                <div class="card info">
+                    🕒 {limit} posts in <strong>{total_minutes} minutes</strong> → <strong>{trendiness}</strong>
+                </div>
+            ''', unsafe_allow_html=True)
+
+            # Top Posts
+            st.markdown("## 🏆 Top Posts")
+            top_positive = df[df["sentiment"] == "positive"].sort_values("score", ascending=False).head(1)
+            top_negative = df[df["sentiment"] == "negative"].sort_values("score", ascending=True).head(1)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if not top_positive.empty:
+                    st.markdown(f"""
+                    <div class="card positive">
+                        ✅ <strong>Most Positive Post:</strong><br><br>
+                        <em>{top_positive.iloc[0]['title']}</em><br>
+                        <small>Score: {top_positive.iloc[0]['score']:.2f}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            with col2:
+                if not top_negative.empty:
+                    st.markdown(f"""
+                    <div class="card negative">
+                        ⚠️ <strong>Most Negative Post:</strong><br><br>
+                        <em>{top_negative.iloc[0]['title']}</em><br>
+                        <small>Score: {top_negative.iloc[0]['score']:.2f}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            # Keyword Co-occurrence
+            st.markdown("## 🧠 Keyword Co-occurrence")
+            all_words = []
+            for title in df["title"]:
+                words = re.findall(r"\b\w+\b", title.lower())
+                words = [w for w in words if w not in stopwords.words("english") and w != query.lower()]
+                all_words.extend(words)
+
+            common_words = Counter(all_words).most_common(10)
+            if common_words:
+                for word, count in common_words:
+                    st.write(f"🔹 **{word}** — {count} times")
+            else:
+                st.write("No significant keywords found.")
+        else:
+            st.error("🚫 Failed to connect to the Sentilytics API.")
